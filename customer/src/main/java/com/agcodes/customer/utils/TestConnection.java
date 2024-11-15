@@ -1,4 +1,4 @@
-package com.agcodes.utils;
+package com.agcodes.customer.utils;
 
 import java.io.PrintWriter;
 import java.sql.Connection;

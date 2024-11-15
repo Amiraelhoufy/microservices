@@ -1,4 +1,4 @@
-package com.agcodes.model;
+package com.agcodes.customer.model;
 
 // Naming of the parameters in the request
 public record CustomerRegistrationRequest(

@@ -1,7 +1,7 @@
-package com.agcodes.controller;
+package com.agcodes.customer.controller;
 
-import com.agcodes.service.CustomerService;
-import com.agcodes.model.CustomerRegistrationRequest;
+import com.agcodes.customer.model.CustomerRegistrationRequest;
+import com.agcodes.customer.service.CustomerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
