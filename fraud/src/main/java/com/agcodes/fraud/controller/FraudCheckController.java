@@ -1,12 +1,13 @@
 package com.agcodes.fraud.controller;
 
-import com.agcodes.fraud.model.FraudCheckResponse;
+import com.agcodes.clients.fraud.FraudCheckResponse;
+import com.agcodes.clients.fraud.FraudClient;
 import com.agcodes.fraud.service.FraudCheckService;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -17,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class FraudCheckController {
 
   private final FraudCheckService fraudCheckService;
-  
+
   @GetMapping(path="{customerId}")
   public FraudCheckResponse isFraudster(
       @PathVariable("customerId") Integer customerId){

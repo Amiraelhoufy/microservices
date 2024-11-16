@@ -1,4 +1,4 @@
-package com.agcodes.fraud.model;
+package com.agcodes.clients.fraud;
 
 public record FraudCheckResponse(Boolean isFraudster) {
 
