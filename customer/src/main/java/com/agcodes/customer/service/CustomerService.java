@@ -44,6 +44,7 @@ public record CustomerService(CustomerRepository customerRepository,
         , customer.getId());
 
     */
+
     FraudCheckResponse fraudCheckResponse = fraudClient.isFraudster(customer.getId());
 
     if(fraudCheckResponse.isFraudster()){
