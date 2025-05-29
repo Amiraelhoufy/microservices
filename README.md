@@ -1,5 +1,7 @@
-<<<<<<< HEAD
 # Microservices and Distributed Systems
+This project is where I'm applying what I've learned about microservices and Spring-related technologies. I'm using Spring Boot to build a system with microservices architecture, incorporating tools and concepts like Kubernetes, RabbitMQ, Kafka, and API Gateway security. 
+Each update demonstrates my progress, including service communication, message-driven architecture, and securing APIs.
+
 ## **📚 Course Curriculum**
 
 ## **1. Getting Started**
@@ -91,8 +93,56 @@ tree /f
 		</pluginManagement>
 	</build>
 ```
-=======
-# Microservices
-This project is where I'm applying what I've learned about microservices and Spring-related technologies. I'm using Spring Boot to build a system with microservices architecture, incorporating tools and concepts like Kubernetes, RabbitMQ, Kafka, and API Gateway security. 
-Each update demonstrates my progress, including service communication, message-driven architecture, and securing APIs.
->>>>>>> 22e44886274fa70c1ab15d7ba98f5603766d916a
+## **3. Your First Microservice:**
+
+- **Microservices**: Microservice architectures are the ‘new normal’. Building `small`, `self-contained`, `ready to run` applications can bring great `flexibility` and added `resilience` to your code. Spring Boot’s many purpose-built features make it easy to build and run your microservices in production at scale. And don’t forget, no microservice architecture is complete without `Spring Cloud` ‒ easing administration and boosting your fault-tolerance.
+
+- **Cloud**: Developing distributed systems can be challenging. Complexity is moved from the application layer to the network layer and demands greater interaction between services. Making your code ‘cloud-native’ means dealing with 12-factor issues such as external configuration, statelessness, logging, and connecting to backing services. The Spring Cloud suite of projects contains many of the services you need to make your applications run in the cloud. <br/>
+1- **Service discovery**<br/>
+2- **API gateway**<br/>
+3- **Cloud configuration**<br/>
+4- **Circuit breakers**<br/>
+5- **Tracing**<br/>
+6- **Testing**<br/>
+
+- **Spring Cloud architecture highlights:**
+![Spring Cloud architecture](assets/cloud-3.svg)
+
+1- Creating **1st Microservice app**:<br/>
+Right click on parent project > `new module` > customer. <br/>
+2- Parent pom.xml:
+```xml
+<modules>
+		<module>customer</module>
+</modules>
+```
+3- create customer/resources/**banner.txt** using 👉 [Generate Banner](https://devops.datenkollektiv.de/banner.txt/index.html) <br/>
+4- Create:
+ - customer Model &rarr; Class
+ - customer Repository  &rarr; Interface
+ - Service, Controller, DTO &rarr; Record gives you: <br/>
+ 1- Auto-generated constructor <br/>
+ 2- equals(), hashCode(), toString() [Reduces boilerplate code] <br/>
+ 3- Final fields (immutable) <br/>
+
+5- Create `docker-compose.yml` in **parent module**. <br/>
+```bash
+# Starts all the services defined in your docker-compose.yml file
+# -d "detached mode" → runs the containers in the background.
+docker compose up -d
+
+# Lists the status of the containers created by your docker-compose.yml
+docker compose ps
+```
+6- modify `application.yml` in **customer module** with `database connections`. <br/>
+7- Add `JPA` & `Postgres` dependencies in `pom.xml` in **customer module**. <br/>
+8- Testing the controller using Postman
+
+### ✅ Lombok Annotations;
+
+| Annotation            | Purpose                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `@Data`               | Generates getters, setters, `toString()`, `equals()`, etc. |
+| `@Builder`            | Enables builder easily build objects using **chained method** calls pattern &rarr; ```User user = User.builder().name("Bob").age(30).build();```                                    |
+| `@AllArgsConstructor` | Full-argument constructor                                  |
+| `@NoArgsConstructor`  | Empty constructor [Required by frameworks like **JPA**, **Jackson**]                                         |
