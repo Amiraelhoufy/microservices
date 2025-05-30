@@ -6,6 +6,7 @@ Each update demonstrates my progress, including service communication, message-d
 
 ## **1. Getting Started**
 - **Customer**: Service responsible for handling customer registration.
+- **Fraud**: a fraud detection Service &rarr; Mocking without external provider (3rd party API).
 
 ![Project Structure](assets/Microservice-summary.png)
 
@@ -106,11 +107,11 @@ tree /f
 6- **Testing**<br/>
 
 - **Spring Cloud architecture highlights:**
-![Spring Cloud architecture](assets/cloud-3.svg)
+![Spring Cloud architecture](assets/cloud-architecture.svg)
 
 1- Creating **1st Microservice app**:<br/>
 Right click on parent project > `new module` > customer. <br/>
-2- Parent pom.xml:
+2- Parent pom.xml generates:
 ```xml
 <modules>
 		<module>customer</module>
@@ -121,11 +122,24 @@ Right click on parent project > `new module` > customer. <br/>
  - customer Model &rarr; Class
  - customer Repository  &rarr; Interface
  - Service, Controller, DTO &rarr; Record gives you: <br/>
- 1- Auto-generated constructor <br/>
+ 1- Auto-generated constructor &rarr; **constructor-based injection** "promotes **immutability**" (final fields) <br/>
  2- equals(), hashCode(), toString() [Reduces boilerplate code] <br/>
  3- Final fields (immutable) <br/>
 
+ ✅ ***constructor-based injection***:  You no longer need to explicitly annotate constructors with `@Autowired` for Spring to inject dependencies — Spring does it **automatically** if there is **only one constructor** in the class.
+ (especially Spring 4.3+ and Spring Boot 3+)
+
+
+ ***🔐 What is immutability?*** An immutable object is an object whose state (data/fields) cannot change after it's created:
+1) All fields are **final** <br/>
+2) **No setters** are provided <br/>
+3) Object is fully **initialized in the constructor** <br/>
+
+
 5- Create `docker-compose.yml` in **parent module**. <br/>
+- **Docker Image** [Recipe]:  A read-only blueprint that `contains everything` needed to `run an application` (like code, libraries, and config).
+
+- **Docker Container** [Final Dish]: A `running instance` of an `image` — it's the actual app or service running in an isolated environment.
 ```bash
 # Starts all the services defined in your docker-compose.yml file
 # -d "detached mode" → runs the containers in the background.
@@ -135,7 +149,7 @@ docker compose up -d
 docker compose ps
 ```
 6- modify `application.yml` in **customer module** with `database connections`. <br/>
-7- Add `JPA` & `Postgres` dependencies in `pom.xml` in **customer module**. <br/>
+7- Add `Spring Web`,`JPA` & `Postgres` dependencies in `pom.xml` in **customer module**. <br/>
 8- Testing the controller using Postman
 
 ### ✅ Lombok Annotations;
@@ -146,3 +160,29 @@ docker compose ps
 | `@Builder`            | Enables builder easily build objects using **chained method** calls pattern &rarr; ```User user = User.builder().name("Bob").age(30).build();```                                    |
 | `@AllArgsConstructor` | Full-argument constructor                                  |
 | `@NoArgsConstructor`  | Empty constructor [Required by frameworks like **JPA**, **Jackson**]                                         |
+
+## **4. Microservice Communication via HTTP:**
+
+1- Creating a new module **fraud** &rarr;
+Right click on parent project > `new module` > Fraud. <br/>
+2- Create fraud/resources/**banner.txt** <br/>
+3- Create:
+ - Fraud Model, Service, Controller &rarr; Class (the service isn't a record as it needs to have logic & We might not be using the latest Java version)
+ - Fraud Repository  &rarr; Interface
+ - DTO &rarr; Record
+ #### ✅ How microservices communicate using:
+1) RestTemplate
+2) Eureka Service Discovery
+3) OpenFeign
+
+4- modify `application.yml` in **Fraud module** with `database connections`. <br/>
+**In a typical microservices architecture:**
+Each microservice should ideally have its own database (by adding a new service in docker-compose.yml).<br/>
+&rarr; This ensures loose coupling, data ownership, and independent scaling. <br/>
+&rarr; But... in **local development** or **limited-resource** environments (like your laptop or small test server), it’s common and practical to: <br/>
+👉 Use a **shared PostgreSQL container** and isolate each service using **separate schemas**.<br/>
+5- Add `Spring Web`,`JPA` & `postgres` dependencies in `pom.xml` <br/>
+6- Testing the controllers (customer & fraud) using Postman <br/>
+
+
+## **5. Service Discovery with Eureka:**

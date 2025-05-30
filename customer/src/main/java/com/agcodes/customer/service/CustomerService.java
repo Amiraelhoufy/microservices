@@ -35,7 +35,7 @@ public record CustomerService(CustomerRepository customerRepository,
     */
     customerRepository.saveAndFlush(customer);
 
-    // ------------- Before Using OpenFeign -------------
+    // ------------- 1) Using RestTemplate -------------
     /*
     FraudCheckResponse fraudCheckResponse = restTemplate.getForObject(
 //        "http://localhost:8081/api/v1/fraud-check/{customerId}"
