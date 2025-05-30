@@ -33,7 +33,7 @@ public record CustomerService(CustomerRepository customerRepository,
         saveAndFlush: to retrieve the id of the saved customer
         save: the id for customer object will be null (Not retrieved)
     */
-    customerRepository.saveAndFlush(customer);
+    customerRepository.saveAndFlush(customer); //  Without @Transactional: executes SQL insert committed immediately
 
     // ------------- 1) Using RestTemplate -------------
     /*
