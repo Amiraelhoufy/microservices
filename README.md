@@ -7,6 +7,7 @@ Each update demonstrates my progress, including service communication, message-d
 ## **1. Getting Started**
 - **Customer**: Service responsible for handling customer registration.
 - **Fraud**: a fraud detection Service &rarr; Mocking without external provider (3rd party API).
+- **Clients**: having all the clients for the microservices or any external clients (facebook,...) 
 - **Spring Cloud**: Provides tools to quickly build some of the common patterns in distributed systems(e.g, configuration management, service discovery, circuit breakers, load balancing, ...)
 - **Service Discovery**: Process of automatically detecting devices and services on a network. **[Register - Look - Connect]**
 
@@ -371,3 +372,241 @@ public class CustomerConfiguration {
 10- Testing a POST request to the Customer service and how Eureka with **RoundRobin load balancing** works with multiple instances of Fraud
 
 ![Service Discovery - Register, Look, connect](assets/Eureka-Server.jpg)
+
+## **6. Open Feign:**
+- **Open Feign**: **Java library** that lets you **call** other **web services** (APIs) using **simple Java interfaces** — no need to write boilerplate code like `RestTemplate` or `WebClient`.
+
+- It handles:
+
+1) **HTTP request creation**
+
+2) **URL handling**
+
+3) **Serialization** (converting Java to JSON and back)
+
+4) **Load balancing** (when used with Spring Cloud)
+
+#### 👉 Steps for Open Feign:
+1- Creating **clients module**:<br/>
+Right click on parent project > `new module` > clients.<br/>
+
+2- Adding **Feign dependency** in the parent `pom.xml` dependencies to be used by all the sub-modules:
+```xml
+<dependencies>
+	<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-openfeign</artifactId>
+	</dependency>
+</dependencies>
+```
+
+3- Add **Fraud** package in **clients module** and create an interface & record as below:
+```java
+// Fraud interface
+@FeignClient(
+    value = "fraud",
+    path = "api/v1/fraud-check"
+)
+public interface FraudClient {
+  @GetMapping(path="{customerId}")
+ FraudCheckResponse isFraudster(@PathVariable("customerId") Integer customerId);
+
+}
+```
+```java
+public record FraudCheckResponse(Boolean isFraudster) {
+
+}
+```
+
+4- including the dependency in the **customer** `pom.xml` to be able to use our **client** module and enabling it in the main class `@EnableFeignClients`:
+```xml
+<dependencies>
+	<dependency>
+      <groupId>com.agcodes</groupId>
+      <artifactId>clients</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+      <scope>compile</scope>
+    </dependency>
+</dependencies>
+```
+```java
+@SpringBootApplication
+@EnableEurekaClient
+@EnableFeignClients(
+    basePackages = "com.agcodes.clients"
+)
+public class CustomerApplication {
+  public static void main(String[] args) {
+    SpringApplication.run(CustomerApplication.class,args);
+  }
+
+}
+```
+5- Updating the **customer's service** using private final **FraudClient** & **fraudCheckResponse** from the clients package and delete the FraudCheckResponse class from the customer's module & Fraud's module:
+```java
+@Service
+public record CustomerService(
+						CustomerRepository customerRepository,
+                        RestTemplate restTemplate,
+                        FraudClient fraudClient){
+						
+						  FraudCheckResponse fraudCheckResponse = fraudClient.isFraudster(customer.getId());
+
+public void registerCustomer(CustomerRegistrationRequest request) {
+    Customer customer = Customer.builder()
+        .firstName(request.firstName())
+        .lastName(request.lastName())
+        .email(request.email())
+        .build();
+
+    if(fraudCheckResponse.isFraudster()){
+      throw new IllegalStateException("Fraudster!");
+    }
+}
+}
+
+```
+6- Trying to run the applications in below order: 
+Eureka-server &rarr; fraud &rarr; customer <br/> 
+Testing post request to the **customer** controller and it works successfully <br/>
+
+7- **When You Add a New Endpoint(method) to FraudController** = **You must also add a matching method to clients/fraud/FraudClient interface** to be availabe for other microservices to call it using Feign. <br/>
+
+## **7. 💡 Exercise:**
+ ### Add a Notification Microservice: 
+ - In this exercise, you'll add a new microservice called notification that sends a notification to the customer after successful registration, if they are not marked as fraudsters. This setup will not use a message queue (like RabbitMQ or Kafka) — it will be a direct REST call using Feign.
+
+ ### 🛠️ Steps to Complete the Exercise:
+ 1) **Create the notification Microservice**
+ - Use Spring Initializr or copy an existing microservice structure (e.g. fraud or customer)
+ - Add dependencies: Spring Web, Spring Data JPA, Eureka Client, Lombok.
+ - **Create a Database Schema for Notification**: Add JPA entity Notification, repository, and service to store notification details.
+
+```java 
+// Notification Model
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+public class Notification {
+
+  @Id
+  @SequenceGenerator(
+      name = "notification_id_sequence",
+      sequenceName = "notification_id_sequence"
+  )
+  @GeneratedValue(
+      strategy = GenerationType.SEQUENCE,
+      generator = "notification_id_sequence"
+  )
+  private Integer notificationId;
+  private Integer toCustomerId;
+  private String toCustomerEmail;
+  private String sender;
+  private String message;
+  private LocalDateTime sentAt;
+}
+```
+```java
+// Service
+@Service
+@AllArgsConstructor
+public class NotificationService {
+
+  private final NotificationRepository notificationRepository;
+
+  public void send(NotificationRequest notificationRequest){
+    notificationRepository.save(
+        Notification.builder()
+            .toCustomerId(notificationRequest.toCustomerId())
+            .toCustomerEmail(notificationRequest.toCustomerName())
+            .sender("Server")
+            .message(notificationRequest.message())
+            .sentAt(LocalDateTime.now())
+            .build());
+  }
+  }
+```
+```java
+// Controller
+@RestController
+@RequestMapping("api/v1/notification")
+@AllArgsConstructor
+@Slf4j
+public class NotificationController {
+
+  private final NotificationService notificationService;
+
+  @PostMapping
+  public void sendNotification(@RequestBody NotificationRequest notificationRequest){
+    log.info("New notificationRequest {}",notificationRequest);
+    notificationService.send(notificationRequest);
+  }
+}
+```
+ 2) **Register notification with Eureka**
+ - Add the required Eureka client config in `application.yml` & Set a unique spring.application.name=notification.:
+ ```yml
+ server:
+  port: 8082
+
+  spring:
+  application:
+    name: notification
+  datasource:
+    url: jdbc:postgresql://localhost:5433/notification
+    username: 
+    password: 
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: true
+    logging:
+      level:
+        org.springframework.jdbc.core: DEBUG
+ eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+ ```
+ 3) **Create a Feign Client for Notification in the clients Module**
+ - In the clients module, add an interface `NotificationClient`.
+- Create a `NotificationRequest` **DTO class** in clients/notification.
+```java
+@FeignClient(
+    path = "api/v1/notification",
+    value = "notification"
+)
+public interface NotificationClient {
+  @PostMapping
+  public void sendNotification(@RequestBody NotificationRequest notificationRequest);
+}
+```
+```java
+public record NotificationRequest(
+    Integer toCustomerId,
+    String toCustomerName,
+    String message
+) {
+}
+```
+
+### Final Test Scenario
+- Send a POST request to **/api/v1/customers** to register a customer.
+- Inside CustomerService, after checking the fraud response
+- If not a fraudster, make a call to **NotificationClient.sendNotification(...)** to trigger the notification.
+- Check that the notification is saved in the notification database and a log message is printed.
+
+### ✅ Open Fiegn Annotations Summary:
+| **Service**    | `@EnableEurekaClient`    | `@EnableFeignClients`                  | Why?                                     |
+| -------------- | ------------------------ | -------------------------------------- | ---------------------------------------- |
+| `customer`     | Optional (modern Spring) | ✅ Yes (calls `fraud` & `notification`) | Needs to scan and register Feign clients |
+| `notification` | Optional (modern Spring) | ❌ Not needed                           | Doesn't call other services              |
+

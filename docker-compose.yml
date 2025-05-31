@@ -11,7 +11,8 @@ services:
 
     ports:
 #      Forward all traffic from 5433 Machine (To) Docker Container 5432
-#      - Host Machine (Computer) : Docker container
+#      - HostPort Machine (Computer): Docker container port
+#       To Avoid conflicts with system-installed Postgres (it's usually running on port 5432) and other containers
       - "5433:5432"
     networks:
       - postgres
