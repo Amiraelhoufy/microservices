@@ -375,8 +375,9 @@ public class CustomerConfiguration {
 
 ## **6. Open Feign:**
 - **Open Feign**: **Java library** that lets you **call** other **web services** (APIs) using **simple Java interfaces** — no need to write boilerplate code like `RestTemplate` or `WebClient`.
+- **Solves a problem**: Duplicate boilerplate code in which defining the same "FraudCheckResponse" class in both customer & Fraud services and writing manual HTTP client logic (RestTemplate, etc.)
 
-- It handles:
+- **Open Feign** handles:
 
 1) **HTTP request creation**
 
@@ -610,3 +611,53 @@ public record NotificationRequest(
 | `customer`     | Optional (modern Spring) | ✅ Yes (calls `fraud` & `notification`) | Needs to scan and register Feign clients |
 | `notification` | Optional (modern Spring) | ❌ Not needed                           | Doesn't call other services              |
 
+## **8. Distributed Tracing:**
+- **Spring Cloud Sleuth**: It provides spring boot **auto-configuration** for **distributed tracing**
+as it automatically adds `tracing IDs` (**traceId** and **spanId**) to your logs, so you can trace the flow of a request across multiple microservices &rarr; making it easier to **diagnose issue** & **understand the interactions** between microservices.
+- `traceId` for each incoming request.
+- `spanId` for each step/service call (unique per service).
+
+- **Zipkin [central tracing server]**: It is a **distributed tracing system** that **collects** and **visualizes** the `traces` added by **Sleuth** and Stores it (in memory or a database) &rarr; `http://localhost:9411`
+
+![traceId vs spanId](https://raw.githubusercontent.com/spring-cloud/spring-cloud-sleuth/main/docs/src/main/asciidoc/images/trace-id.jpg)
+
+#### 👉 Steps for Sleuth & Zipkin:
+1. Adding sleuth dependency in **customer**, **eureka-server** & **fraud**, **notification** `pom.xml` and `application.yml`:
+```xml
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-sleuth</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-sleuth-zipkin</artifactId>
+    </dependency>
+```
+```yml
+# Default Zipkin URL is "http://localhost:9411", but it's better to set it here so you can easily change it per environment (profiles)
+  zipkin:
+    base-url: http://localhost:9411
+```
+2. Adding Zipkin to `docker-compose.yml` and the environment is used to store the data to database(won't use it for now):
+ ```yml
+   zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+ ```
+ - Terminal command:
+ ```shell
+ # Starts all the services defined in your docker-compose.yml file
+ docker compose up -d
+ # Prints all zipkin logs
+ docker logs zipkin
+ ```
+3. Testing Post request to customer and check Terminal logs:
+```cmd
+# [ServiceName,TraceId,SpanId]
+2025-06-01 22:42:10.736  INFO [customer,db4d579168bcdda8,db4d579168bcdda8]
+```
+4. Open zipkin through &rarr; http://127.0.0.1:9411/
+
+## **9. Api Gateway With Spring Cloud Gateway:**
