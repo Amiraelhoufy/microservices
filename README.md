@@ -661,3 +661,111 @@ as it automatically adds `tracing IDs` (**traceId** and **spanId**) to your logs
 4. Open zipkin through &rarr; http://127.0.0.1:9411/
 
 ## **9. Api Gateway With Spring Cloud Gateway:**
+- **⚖️  Load Balancing**: is the process of **distributing** incoming **network traffic** across **multiple instances** of a service (e.g., multiple microservice instances) to ensure: 
+1. High availability.
+2. Scalability.
+3. Better performance.
+4. No single point of failure.
+
+| **Type**            | **Explanation**                                                                             | **Example Tools**                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **1. Self-Managed** | You **set up** and **configure** your own load balancer inside your app or infrastructure.          | - Spring Cloud LoadBalancer<br>- Netflix Ribbon (deprecated)<br>- NGINX, HAProxy            |
+| **2. Managed**      | Provided and managed by a **cloud provider** or **external service**. You don’t manage the details. | - AWS ELB (Elastic Load Balancer)<br>- Google Cloud Load Balancing<br>- Azure Load Balancer |
+
+### ✅ Flow:
+![Load Balancer Flow](assets/LoadBalancer-Flow.png)
+
+### 📊 Load Balancing Algorithms:
+Different load balancing algorithms offer various benefits. The right choice depends on your application's needs:
+1. **Round Robin**: Requests are sent to each server one after another in a repeating cycle (sequential)
+2. **Least Connections**: A new request goes to the **server with the fewest** current client **connections**. It also considers the server’s capacity.
+3. **Least Time (NGINX Plus only)**: : Sends the request to the server that is expected to **respond the fastest**, based on a **formula** **combining response time** and **number of connections**.
+4. **Hash**: Distributes requests based on a **key** like the `client IP` or `URL`. NGINX Plus can use a **consistent hash** to avoid shifting loads when servers change.
+5. **IP Hash**: Uses the **client’s IP address** to consistently route them to the **same server**.
+6. **Random with Two Choices**: Picks **2 random servers**, then sends the request **to the one with fewer connections** or **faster response** (depending on the setup).
+
+🔍 Quick Tips:
+- **Round Robin** &rarr; for simple, equal-load scenarios.
+- **Least Connections** or **Least Time** &rarr; when some servers might be busier than others.
+- **Hash/IP Hash** &rarr; when session stickiness is important.
+- **Random with Two Choices** &rarr; for better distribution without full overhead.
+
+### 🔧 Health Check:
+- A way to **monitor** if a service is **functioning properly**. It can be customized per service depending on what you want to verify.
+
+- **Simple** Health checks &rarr; Checks if the service is up and running
+- **Advanced** Health checks &rarr; verifies dependencies like: DB connection, External APIs, Message queues (MQ).
+
+### 🌐 API Gateway: 
+- Acts as a **single entry point** for all client requests - Provides a **simple & efficient way** to **route APIs** to different microservices.
+- Provides **cross cutting concerns (CCC)**: 
+1. **Security** (e.g., authentication, rate limiting)
+2. **Monitoring** (e.g., logging, tracing)
+3. **Resilience** (e.g., retries, timeouts, circuit breakers).
+
+### ⚡ Circuit Breaker:
+- When an **instance is unavailable** (Service behind the load balancer or API Gateway) &rarr; **send a default response** to clients.
+- Prevents system overload when a service instance becomes unavailable.
+- Instead of repeatedly trying a failing service, it:
+
+1. 🛑 **Breaks** the circuit after **repeated failures**.
+
+2. 📨 **Returns** a **fallback/default response** to the client
+
+3. 🔁 **Tries** to **reconnect** after a **cool-down period**.
+
+#### 👉 Steps for API Gateway:
+1- Creating a **new module**:<br/>
+Right click on parent project > `new module` > apigw <br/>
+& add `resources/banner.txt`<br/>
+
+2- Add dependencies in **apigw** `pom.xml`:
+```xml
+<dependencies>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-gateway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-sleuth</artifactId>
+      <version>3.0.3</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-sleuth-zipkin</artifactId>
+    </dependency>
+</dependencies>
+```
+3- Add `application.yml` configuration:
+```yml
+server:
+  port: 8083
+
+spring:
+  application:
+    name: api-gateway
+  zipkin:
+    base-url: http://localhost:9411
+  cloud:
+    gateway: 
+      routes: # This is a list
+        - id: customer
+          uri: lb://CUSTOMER # Service name in eureka server
+          predicates:
+            - Path=/api/v1/customers/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+    fetch-registry: true            # default true
+    register-with-eureka: true      # default true
+
+```
+4- After starting all the services, we’ll send the POST request to the `apigw` (API Gateway) instead of sending it directly to the `customer service` — and the gateway will forward it to `customer` &rarr;
+http://localhost:8083/api/v1/customers
