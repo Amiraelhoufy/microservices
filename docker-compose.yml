@@ -38,7 +38,12 @@ services:
     container_name: zipkin
     ports:
       - "9411:9411"
-
+  rabbitmq:
+    image: rabbitmq:3.9.11-management-alpine    # alpine is the smallest image
+    container_name: rabbitmq
+    ports: # Host : Container
+      - "5672:5672"  # RabbitMQ broker port (used by apps/services)
+      - "15672:15672" # RabbitMQ Management Console (access via browser) http://localhost:15672 (username: guest, password: guest by default).
 networks:
   postgres:
     driver: bridge

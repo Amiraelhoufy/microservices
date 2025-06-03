@@ -769,3 +769,183 @@ eureka:
 ```
 4- After starting all the services, we’ll send the POST request to the `apigw` (API Gateway) instead of sending it directly to the `customer service` — and the gateway will forward it to `customer` &rarr;
 http://localhost:8083/api/v1/customers
+
+## **10. Message Queues:**
+
+#### ✅ Why Use Message Queues ?
+1- **Avoid Delays in Main Service**: Your service would have to wait for the notification service to respond &rarr; A **queue** lets your main service continue immediately while the notification is handled **asynchronously**.
+
+2- **Unknown Number of Notification Instances**: You might not know how many instances of services (like Firebase or Twilio) are needed to handle all the notifications &rarr; A **message queue** lets you **scale those services independently** based on the **load**.
+
+3- **Better Error Handling**: If the notification service crashes or has a bug your whole request might fail &rarr; With a **queue**, the **message stays** there and can be **processed later** when the **service is back up**.
+
+### ✅  Message Queues (e.g., RabbitMQ, Kafka) in Microservices:
+1. `Non-blocking` – Avoid making the main service wait; **process tasks asynchronously**.
+
+2. `Scalability` – Decouple services like Firebase/Twilio so they can **scale independently**.
+
+3. `Resilience` – **Prevent data loss** if a service is down; messages stay in the queue and are processed later.
+
+### 📨 AMQP (Advanced Message Queuing Protocol) 
+**AMQP** is a **messaging protocol** used to **send messages** between services in a reliable, secure, and platform-independent way. It defines **how messages are sent**, **not just what format they use**.
+
+| Component    | Role                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Messages** | JSON Payload                                |
+| **Producer** | Sends the message                           |
+| **Consumer** | Receives and processes the message                                                      | **Exchange**   | **Routes** the message **based on** type or key |
+| **Queue**    | **Stores** the message until consumed                                                     |
+| **Broker**   | 🧠 **Handles everything**: receives messages from **producer**, routes them through **exchanges**, stores them in **queues**, and delivers to **consumers** |
+
+- Since it's a **network protocol**, the publisher (producer), consumer, broker can all reside on **different machines**.
+
+![Rabbit MQ](assets/RabbitMQ.png)
+
+- **Loose coupling**: each microservice can reside on different machine
+- **Performance**: If notification service is down, the clients can still send msgs to the `Notification Queue` and consumer can pull the msgs when it's back on.
+- **Scaling**: We can run the broker as a cluster on 1-2 machines.
+- **Language agnostic**: (language-independent) <br/>
+Fraud &rarr; written in Java. <br/>
+Notification &rarr; written in Golang.<br/>
+- **Acks - Acknowlegment**: The message doesn't get removed from the queue &rarr; unless the consumer acknowledges the broker that it has received the message.
+- **Cloud**: Whenever you dockerize your app you can run it easily on any docker provider (AWS, Azure, Google cloud,...)
+
+### 📦 Message Queues:
+
+1- **Apache Kafka**: 
+- Open-source **distributed event streaming** platform.
+- High throughput.
+- Scalable.
+- Permanent storage: Stores data in a distributed cluster.
+- High availability: Efficiently stretches clusters across availability zones or connects separate clusters across geographic regions.
+
+2- **Rabbit MQ**:
+- One of the **most widely used** open-source message brokers (simple to get started).
+
+3- **Amazon SQS (Simple Queue Service)**:
+- **Fully managed** message queue service for microservices.
+
+- **Disadvantage**: Vendor lock-in — you can't easily move to another cloud provider.
+
+### 3 Core Concepts in Messaging:
+1- 📮 **Exchange**:
+- The **component** that **receives messages** from `producers` and **decides** how to **route** them to queues.
+- It doesn’t store messages — it just forwards them based on rules (bindings).
+
+2- 🔗 **Binding**:
+- A **rule** that **connects** an `exchange` to a `queue`.
+- It can include a routing key or pattern, depending on the exchange type.
+
+3- 🚦 **Routing**:
+- The **process** of deciding which queue(s) receive the message, based on the **exchange type** and **binding rules**.
+
+
+### "Exchange" Types:
+**1- 🧷 Direct** = **Exact match** (key to queue) <br/>
+&rarr; routingKey = "email" delivered only to queues bound with "email"
+
+**2- 📢 Fanout** = **Broadcast** (to all queues).
+
+**3- 🔍 Topic** = **Pattern match** (wildcards * and # in keys) (flexible).<br/>
+&rarr; * matches exactly one word<br/>
+\# matches zero or more words<br/>
+`user.*` -> routingKey = "user.login"<br/>
+`user.#` -> routingKey = "user.profile.edit"<br/>
+
+**4- 🧾 Headers** = Filter by **headers** (advanced). `e.g., x-match: all`  
+**5- 📬 Nameless** (Default) = Shortcut (**routing key** = **queue name**).<br/>
+&rarr; routingKey = `"orderQueue"` directly to the queue named `"orderQueue"`
+
+![Rabbit MQ Exchange Types](assets/RabbitMQ%20Binding.png)
+
+## **11. Rabbit MQ in action:**
+
+#### 👉 Steps for Rabbit MQ:
+1- Adding rabbitMQ configs to `docker-compose.yml` and open the console http://localhost:15672 (username: guest, password: guest by default):
+```yml
+rabbitmq:
+    image: rabbitmq:3.9.11-management-alpine # alpine is the smallest image
+    container_name: rabbitmq
+    ports:
+      # Host : Container
+      - "5672:5672"  # RabbitMQ broker port (used by apps/services)
+      - "15672":"15672" # RabbitMQ Management Console (access via browser) http://localhost:15672 (username: guest, password: guest by default).
+```
+
+```bash
+# Starts all the services
+docker compose up -d
+```
+
+![RabbitMQ Console](assets/RabbitMQ%20Console.png)
+
+2- Creating a **new module** for "Advanced Messaging Queue Protocol" **amqp**:<br/>
+Right click on parent project > `new module` > amqp. <br/>
+and add **rabbitMQ dependency** to amqp's `pom.xml`:
+```xml
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+    </dependency>
+  </dependencies>
+```
+
+3- **"Sending MSGs"** <br/>
+ Add new class for rabbitMQ bean configuration **ampq/config/RabbitMQConfig**:
+`Jackson2JsonMessageConverter` do?
+- It uses Jackson (the default JSON library in Spring Boot) to:
+
+- 🔁 Convert Java object ➝ JSON when **sending** a message.
+
+- 🔁 Convert JSON ➝ Java object when **receiving** a message.
+
+`Jackson2ObjectMapperBuilder`.json().modules() :
+-  which helps you **customize Jackson’s ObjectMapper** especially to **register modules** that **help** with **special data types** like LocalDate, Optional, etc.
+
+```java
+
+@Configuration
+@AllArgsConstructor
+public class RabbitMQConfig {
+
+  private final ConnectionFactory connectionFactory;
+  @Bean
+  public AmqpTemplate amqpTemplate() {
+    RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
+   rabbitTemplate.setMessageConverter(jacksonConverter());
+    return rabbitTemplate;
+  }
+
+  @Bean
+  public MessageConverter jacksonConverter(){
+    // Configuring a bean that serialize/convert Java objects to JSON as RabbitMQ (and most message brokers) send/receive messages as "raw bytes" 
+    // Useful in case of passing a JSON Object Mapper
+    // Example
+    /*
+     Jackson2ObjectMapperBuilder jsonBuilder = Jackson2ObjectMapperBuilder.json()
+            .modules(new JavaTimeModule()) // Support for Java 8 date/time
+            .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS) // Format dates as ISO-8601
+            .serializationInclusion(JsonInclude.Include.NON_NULL) // Ignore null fields
+            .indentOutput(true) // Pretty print JSON
+            .build();
+    */
+    Jackson2JsonMessageConverter messageConverter = new Jackson2JsonMessageConverter();
+    return messageConverter;
+  }
+}
+```
+
+
+4- **"Consume/Receive MSGs (Listener)"** <br/>
+Adding this bean to **ampq/config/RabbitMQConfig** class:
+```java
+  @Bean
+  public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory() {
+    SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+    factory.setConnectionFactory(connectionFactory);
+    factory.setMessageConverter(jacksonConverter());
+    return factory;
+  }
+```
+
