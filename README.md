@@ -424,7 +424,7 @@ public record FraudCheckResponse(Boolean isFraudster) {
 ```xml
 <dependencies>
 	<dependency>
-      <groupId>com.agcodes</groupId>
+      <groupId>org.agcodes</groupId>
       <artifactId>clients</artifactId>
       <version>0.0.1-SNAPSHOT</version>
       <scope>compile</scope>
@@ -435,7 +435,7 @@ public record FraudCheckResponse(Boolean isFraudster) {
 @SpringBootApplication
 @EnableEurekaClient
 @EnableFeignClients(
-    basePackages = "com.agcodes.clients"
+    basePackages = "org.agcodes.clients"
 )
 public class CustomerApplication {
   public static void main(String[] args) {
@@ -948,4 +948,330 @@ Adding this bean to **ampq/config/RabbitMQConfig** class:
     return factory;
   }
 ```
+5- Set the **dependency** for **RabbitMQ** in `customer` & `notification` modules:
+```xml
+<dependency>
+   <groupId>org.springframework.boot</groupId>
+   <artifactId>spring-boot-starter-amqp</artifactId>
+</dependency>
 
+<dependency>
+  <groupId>org.agcodes</groupId>
+  <artifactId>amqp</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+</dependency>
+```
+6- Adding queue config in notification's `application.yml`:
+```yml
+spring:
+  rabbitmq:
+    addresses: localhost:5672
+
+rabbitmq:
+  exchanges:
+    internal: internal.exchange # Exchange name
+  queue:
+    notification: notification.queue # Queue name
+  routing-keys:
+    internal-notification: internal.notification.routing-key # Routing key: How to bind the exchange to queue
+```
+7- **"Defining Exchange+Binding+Queue"** by creating a new class in **notification/config/NotificationConfig** to get the values from `application.yml` based on different profiles (e.g. dev, prod, etc.) to follow the best practices:
+```java
+@Configuration
+public class NotificationConfig {
+
+  @Value("${rabbitmq.exchanges.internal}")
+  private String internalExchange;
+
+  @Value("${rabbitmq.queues.notification}")
+  private String notificationQueue;
+
+  @Value("${rabbitmq.routing-keys.internal-notification}")
+  private String internalNotificationRoutingKeys;
+
+  @Bean
+  public TopicExchange internalTopicExchange(){
+    return new TopicExchange(this.internalExchange);
+  }
+  @Bean
+  public Queue notificationQueue(){
+    return new Queue(this.notificationQueue);
+  }
+  @Bean
+  public Binding internalToNotificationBinding(){
+    return BindingBuilder
+        .bind(notificationQueue())
+        .to(internalTopicExchange())
+        .with(this.internalNotificationRoutingKeys);
+  }
+
+  public String getInternalExchange() {
+    return internalExchange;
+  }
+
+  public String getNotificationQueue() {
+    return notificationQueue;
+  }
+
+  public String getInternalNotificationRoutingKeys() {
+    return internalNotificationRoutingKeys;
+  }
+}
+```
+8- Creating new class in **amqp** module:
+- **config** &rarr; Queue, Exchange, Binding Beans
+- **producer** &rarr; Message-sending logic
+- **consumer** &rarr; (optional) for listeners/subscribers
+
+```java 
+// ampq/producer/RabbitMQMessageProducer
+
+@Slf4j
+@AllArgsConstructor
+@Component
+public class RabbitMQMessageProducer {
+
+  private final AmqpTemplate amqpTemplate;
+  public void publish(Object payload, String exchange, String routingKey) {
+    log.info("publishing payload='{}' to exchange='{}' with routing key='{}'", payload, exchange, routingKey);
+    amqpTemplate.convertAndSend(exchange, routingKey, payload);
+    log.info("Published payload='{}' to exchange='{}' with routing key='{}'", payload, exchange, routingKey);
+
+  }
+}
+```
+9- Adding some code (Only for testing) to `notification` module to see **exchanges** & **queues** in **rabbitMQ console**: <br/>
+[This Scenario is just for testing:<br/>
+Sending a message from notification > Exchange > Queue> Notification] :
+```java
+@Slf4j
+@SpringBootApplication(
+    scanBasePackages = {"org.agcodes.notification","org.agcodes.amqp","org.agcodes.clients"}
+)
+public class NotificationApplication {
+
+  public static void main(String[] args) {
+    SpringApplication.run(NotificationApplication.class,args);
+  }
+
+  // To inject the producer
+  @Bean
+  CommandLineRunner commandLineRunner(
+      RabbitMQMessageProducer rabbitMQMessageProducer,
+      NotificationConfig notificationConfig){
+
+    return args -> {
+      rabbitMQMessageProducer.publish(
+//          "foo"
+          new Person("John",28)
+          ,notificationConfig.getInternalExchange()
+          ,notificationConfig.getInternalNotificationRoutingKeys());
+    };
+  }
+  record Person(String name, int age){}
+}
+```
+![Checking Msg payload in rabbitMQ](assets/RabbitMQ-msg-payload.png)
+
+10- Setup the **real scenario**:  <br/>
+Customer (send msg) > Exchange > queue > Notification:
+Adding rabbitMQ config to **customer** `application.yml`:
+```yml
+spring:
+  rabbitmq:
+    address: localhost:5672
+```
+- Adding **RabbitMQMessageProducer** to `customerService`:
+```java
+@Service
+public record CustomerService(CustomerRepository customerRepository,
+                              RestTemplate restTemplate,
+                              FraudClient fraudClient,
+                              RabbitMQMessageProducer rabbitMQMessageProducer){
+
+  public void registerCustomer(CustomerRegistrationRequest request) {
+    Customer customer = Customer.builder()
+        .firstName(request.firstName())
+        .lastName(request.lastName())
+        .email(request.email())
+        .build();
+
+    customerRepository.saveAndFlush(customer);
+
+    FraudCheckResponse fraudCheckResponse = fraudClient.isFraudster(customer.getId());
+
+    if(fraudCheckResponse.isFraudster()){
+      throw new IllegalStateException("Fraudster!");
+    }
+
+    // Send notification
+    // Done: make it async i.e add it to queue
+    NotificationRequest notificationRequest = new NotificationRequest(
+        customer.getId(),
+        customer.getEmail(),
+        String.format("Hi %s, Welcome to Homepage.", customer.getFirstName()));
+
+    rabbitMQMessageProducer.publish(
+        notificationRequest,
+        "internal.exchange",
+        "internal.notification.routing-key"
+        );
+
+  }
+}
+```
+- Adding **scanBasePackages** to main class `customer`:
+```java
+@SpringBootApplication(
+    scanBasePackages = {
+        "org.agcodes.customer",
+        "org.agcodes.clients",
+        "org.agcodes.amqp"}
+)
+@EnableEurekaClient
+@EnableFeignClients(
+    basePackages = "org.agcodes.clients"
+)
+public class CustomerApplication {
+  public static void main(String[] args) {
+    SpringApplication.run(CustomerApplication.class,args);
+  }
+
+}
+```
+11- Runnning all the services: `eurekaServer`, `notification`, `fraud`, `apigq`, `customer`
+and testing post request
+![Post Request to test RabbitMQ Flow](assets/Postman-rabbitMQ-postRequest.png)
+![Checking Message on RabbitMQ Console](assets/RabbitMQ-console-payload.png)
+
+12- "RabbitListener" Final step is to process the **NotificationQueue** by `notification` module by creating a new class **notification/rabbitmq/NotificationConsumer**:
+```java
+@Slf4j
+@AllArgsConstructor
+@Service
+public class NotificationConsumer {
+
+  private final NotificationService notificationService;
+  @RabbitListener(queues = "${rabbitmq.queue.notification}")
+  public void consumer(NotificationRequest notificationRequest){
+
+    log.info("Consumed {} from queue",notificationRequest);
+    // Storing to db
+    notificationService.send(notificationRequest);
+  }
+}
+```
+As the communication is now **asynchronous**, the **customer registration request completes faster** — it doesn't wait for the **notification service** to respond. Even if the notification hasn't been processed yet, the request moves on.
+
+
+## **12. 🚀 Packaging Microservices to Runnable Jar:**
+
+#### 👉 More About the Maven Build Lifecycle: [Maven Lifecycle](https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html)
+
+🔹 `mvn package`: <br/>
+- **Goal**: Compiles your code, runs tests, and creates a JAR or WAR file.
+- **Output**: Places the file in the `module’s target/ folder`.
+- **Scope**: Only prepares the artifact locally in the project directory.
+
+🔸 `mvn install`: <br/>
+- **Goal**: Does everything package does plus:
+- **Installs** (copies) the resulting artifact (JAR/WAR) into your local Maven repository `(~/.m2/repository)`.
+- Makes the artifact available for other local projects to use as a **dependency**.
+
+#### 👉 Steps: 
+1- Modifying the **parent** `pom.xml` by adding plugins to be included for all **sub-modules** and **execution** in for the maven-plugin in pluginManagement:
+ ```xml
+ <build>
+		<pluginManagement>
+			<plugins>
+				<!-- Spring Boot Maven Plugin -->
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<version>${spring.boot.maven.plugin.version}</version>
+					<executions>
+						<execution>
+							<id>repackage</id>
+							<phase>package</phase>
+							<goals>
+								<goal>repackage</goal>
+							</goals>
+						</execution>
+					</executions>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.8.1</version>
+				<configuration>
+					<source>17</source>
+					<target>17</target>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+ ```
+2- Removing properties **redundent configuration** from **sub-modules** (since it's **already inherited** from the **parent** `pom.xml`) and specify the **packaging** and add **build plugin** for `eureka-server`, `customer`, `fraud`, `apigw` only. <br/>
+
+👉 Don't include them for `client` & `amqp` as they will fail because Spring Boot tries to `repackage` it into an `executable JAR`, but this module **doesn’t contain a main() class**:
+```xml
+<groupId>org.agcodes</groupId>
+<artifactId>amqp</artifactId>
+<packaging>jar</packaging>
+
+<build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+</build>
+
+<!-- <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+</properties> -->
+```
+
+3- Solving this error when compiling **customer** as we need to run mvn install first before compile:
+
+✅ When you build or install a Maven project, all the project dependencies (like external libraries or internal modules) are downloaded or stored in a **local directory** called the **.m2/repository** (Maven’s local cache) to be used as dependencies by other modules
+```cmd
+[ERROR] Failed to execute goal on project customer: Could not resolve dependencies for project org.agcodes:customer:jar:0.0.1-SNAPSHOT
+[ERROR] dependency: org.agcodes:clients:jar:0.0.1-SNAPSHOT (compile)
+[ERROR] 	Could not find artifact org.agcodes:clients:jar:0.0.1-SNAPSHOT in spring-repo (https://repo.spring.io/release)
+[ERROR] dependency: org.agcodes:amqp:jar:0.0.1-SNAPSHOT (compile)
+[ERROR] 	Could not find artifact org.agcodes:amqp:jar:0.0.1-SNAPSHOT in spring-repo (https://repo.spring.io/release)
+[ERROR]
+ ```
+
+4- When you run `mvn clean install` from the **parent project** in a Maven multi-module setup:
+- `clean` &rarr; Deletes previous target/ folders (removes old build files).
+- `install` &rarr; Builds all sub-modules.
+- Creates `.jar` files for each sub-module (if <packaging>jar</packaging> is defined)
+- Installs those .jar files into your local **.m2/repository**.
+```
+sub-module/
+└── target/
+    └── sub-module-0.0.1-SNAPSHOT.jar
+```
+| File             | What's Inside                    | Runnable? | Purpose                   |
+| ---------------- | -------------------------------- | --------- | ------------------------- |
+| `*.jar`          | **App + Dependencies + Spring Boot** | ✅ Yes     | Used to **run** the app       |
+| `*.jar.original` | Only your app's **compiled code** `.class` (created before Spring Boot "repackages" it)    | ❌ No      | **Backup** before repackaging |
+
+
+▶️ **Running all the jars** from parent module path and check zipkin after testing the post request:
+```
+java -jar eureka-server/target/eureka-server-0.0.1-SNAPSHOT.jar
+java -jar customer/target/customer-0.0.1-SNAPSHOT.jar
+java -jar notification/target/notification-0.0.1-SNAPSHOT.jar
+java -jar fraud/target/fraud-0.0.1-SNAPSHOT.jar
+java -jar apigw/target/apigw-0.0.1-SNAPSHOT.jar
+```
+![Zipkin](assets/Zipkin-final-asynchronous-flow.png)

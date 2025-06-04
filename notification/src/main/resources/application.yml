@@ -22,6 +22,8 @@ spring:
         org.springframework.jdbc.core: DEBUG
   zipkin:
     base-url: http://localhost:9411
+  rabbitmq:
+    addresses: localhost:5672
 
 eureka:
   client:
@@ -29,3 +31,12 @@ eureka:
       defaultZone: http://localhost:8761/eureka
     fetch-registry: true            # default true
     register-with-eureka: true      # default true
+
+rabbitmq:
+  exchanges:
+    internal: internal.exchange # Exchange name
+  queue:
+    notification: notification.queue # Queue name
+  routing-keys:
+    internal-notification: internal.notification.routing-key # Routing key: How to bind the exchange to queue
+

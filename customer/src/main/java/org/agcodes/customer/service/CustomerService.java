@@ -1,0 +1,72 @@
+package org.agcodes.customer.service;
+
+import org.agcodes.amqp.producer.*;
+import org.agcodes.clients.fraud.FraudCheckResponse;
+import org.agcodes.clients.fraud.FraudClient;
+import org.agcodes.clients.notification.NotificationRequest;
+import org.agcodes.customer.repository.CustomerRepository;
+import org.agcodes.customer.model.Customer;
+import org.agcodes.customer.model.CustomerRegistrationRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public record CustomerService(CustomerRepository customerRepository,
+                              RestTemplate restTemplate,
+                              FraudClient fraudClient,
+                              RabbitMQMessageProducer rabbitMQMessageProducer){
+
+  public void registerCustomer(CustomerRegistrationRequest request) {
+    Customer customer = Customer.builder()
+        .firstName(request.firstName())
+        .lastName(request.lastName())
+        .email(request.email())
+        .build();
+
+    System.out.println(customer);
+
+    // todo: check if email valid
+    // todo: check if email not taken
+    // todo: check if fraudster
+
+    /*
+        saveAndFlush: to retrieve the id of the saved customer
+        save: the id for customer object will be null (Not retrieved)
+    */
+    customerRepository.saveAndFlush(customer); //  Without @Transactional: executes SQL insert committed immediately
+
+    // ------------- 1) Using RestTemplate -------------
+    /*
+    FraudCheckResponse fraudCheckResponse = restTemplate.getForObject(
+//        "http://localhost:8081/api/v1/fraud-check/{customerId}"
+        "http://FRAUD/api/v1/fraud-check/{customerId}"
+        , FraudCheckResponse.class
+        , customer.getId());
+
+    */
+
+    FraudCheckResponse fraudCheckResponse = fraudClient.isFraudster(customer.getId());
+
+    if(fraudCheckResponse.isFraudster()){
+      throw new IllegalStateException("Fraudster!");
+    }
+
+    // Send notification
+    // Done: make it async i.e add it to queue
+    NotificationRequest notificationRequest = new NotificationRequest(
+        customer.getId(),
+        customer.getEmail(),
+        String.format("Hi %s, Welcome to Homepage.", customer.getFirstName()));
+
+//    notificationClient.sendNotification(
+//        notificationRequest
+//      );
+
+    rabbitMQMessageProducer.publish(
+        notificationRequest,
+        "internal.exchange",
+        "internal.notification.routing-key"
+        );
+
+  }
+}
