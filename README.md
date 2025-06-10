@@ -1275,3 +1275,270 @@ java -jar fraud/target/fraud-0.0.1-SNAPSHOT.jar
 java -jar apigw/target/apigw-0.0.1-SNAPSHOT.jar
 ```
 ![Zipkin](assets/Zipkin-final-asynchronous-flow.png)
+
+
+## **13. 🐳 Packaging Jars to Docker Images:**
+
+### **1) Docker**: 
+1. It's a **technology** that changed the way **package and distribute software**.
+2. `Platform` for **building**, **running** and **shipping** applications → `developers` can easily build and deploy apps running in `containers` [**running instance of an app**].
+3. **Consistency**: Your local development environment is identical to production.<br/>
+4. **Portability**: Package once, run anywhere (local, cloud, CI/CD)<br/>
+5. **Speed**: Faster startup and isolation compared to traditional **VMs**.<br/>
+6. `JAR` → **(via Jib)** → `Docker Image` → `Container` → `Kubernetes Cluster`
+7. CI/CD workflow (used a lot/ key role in modern DevOps workflows).
+![](assets/)
+
+### **2) Docker Image**:
+- It's a **file** used to **execute code** in docker **container**.
+- **Set of instructions** to build docker container.
+- Contains the app code, libraries, tools.
+- `Template`/ `Blueprint` for running your app
+- **1** docker image can run **M** containers
+
+### **3) Docker Container**:
+- `Isolated environment` for running an app.
+- contains everything your app needs (OS, tools and binaries, software(most important): springboot, golang etc,...)
+
+### **4) Docker Architecture (Client-server Approach)**:
+1. **Client** (CLI)
+2. **Host** (Docker Daemon: handles the client requests)
+3. **Registeries** (public/private images) <br/>
+It's a storage and distribution system for docker images.<br/>
+```docker pull / push``` <br/>
+👉 Example for public registeries: [**Dockerhub**](https://hub.docker.com/search?type=image) (the most popular docker registry), [**Amazon Elastic Container Registry - ECR**](https://aws.amazon.com/ecr/), [**Google Cloud Artifact Registry**](https://cloud.google.com/artifact-registry/docs), [**GitHub Packages**](https://docs.github.com/en/packages)
+
+![Docker Architecture](assets/docker-architecture.png)
+![Docker Registeries](assets/docker-registries.png)
+
+#### 👉 Steps for Packaging Jars to Docker Images:
+1. Create a Docker Account and Log In : [**Dockerhub**](https://hub.docker.com/search?type=image)
+```cmd
+docker login
+```
+
+2. Build Docker Images Without Writing Dockerfiles: <br/>
+We can create a **docker image (oci)** from a JAR/WAR using <br/>
+ `1) spring boot maven plugin`:
+[Maven plugin doc](https://docs.spring.io/spring-boot/maven-plugin/build-image.html) <br/>
+Or <br/> 
+`2) JIB (by Google)`: which is a great **tool** to containerize our java apps without writing a Dockerfiles and No docker build or docker push commands required manually: [JIB](https://github.com/GoogleContainerTools/jib)
+
+3. Adding **JIB** to the **parent**'s `pom.xml` in the `pluginManagement` to be available only in the parent module and Only the child modules that need Jib will include and use it. <br/>
+Adding configuration [adoptopenjdk](https://hub.docker.com/_/adoptopenjdk) is DEPRECATED use [eclipse-temurin](https://hub.docker.com/_/eclipse-temurin/) instead
+and include the hashcode and adding docker username
+```xml
+<properties>
+		<!-- Centralizing image name -->
+		<image>agcodes/${project.artifactId}:${project.version}</image>
+</properties>
+```
+
+```xml
+<build>
+		<pluginManagement>
+			<plugins>
+      	    <plugin>
+					<groupId>com.google.cloud.tools</groupId>
+					<artifactId>jib-maven-plugin</artifactId>
+					<version>3.1.4</version>
+					<configuration>
+						<from>
+							<image>eclipse-temurin:17@sha256:2b47a8ea946ce1e5365a1562414ed576e378b7b670cadff3fb98ebecf2890cdc</image>
+							<platforms>
+								<platform>
+									<architecture>arm64</architecture>
+									<os>linux</os>
+								</platform>
+								<platform>
+									<architecture>amd64</architecture>
+									<os>linux</os>
+								</platform>
+							</platforms>
+						</from>
+						<to>
+							<tags>
+								<tag>latest</tag>
+							</tags>
+						</to>
+					</configuration>
+					<executions>
+						<execution>
+							<phase>package</phase>
+							<goals>
+								<goal>build</goal>
+							</goals>
+						</execution>
+					</executions>
+				</plugin>
+	</plugins>
+</pluginManagement>
+```
+4. Adding JIB to the **sub-modules** `pom.xml` and parent's `docker-compose.xml` and create a **Docker network** to enable communication between your containers by **service/container name** (When running microservices in Docker containers, the localhost setting in your application.yml won’t work) <br/>
+
+❌ These modules will NOT use Jib:
+- `amqp` (shared configuration module)
+- `clients` (Feign client interfaces or DTOs) <br/>
+
+✅ These modules will use Jib to build and push Docker images:
+- `customer`
+- `apigw`
+- `eureka-server`
+- `fraud`
+- `notification`
+```xml
+<!-- For each child module `pom.xml`: -->
+<profiles>
+        <profile>
+            <id>build-docker-image</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.google.cloud.tools</groupId>
+                        <artifactId>jib-maven-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+```
+
+```yml
+# docker-compose.xml
+
+eureka-server:
+    image: amiragalal/eureka-server:latest
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - spring
+    depends_on:
+      - zipkin
+  apigw:
+    image: amiragalal/apigw:latest
+    container_name: apigw
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - spring
+    depends_on:
+      - zipkin
+      - eureka-server
+  customer:
+    image: amiragalal/customer:latest
+    container_name: customer
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - spring
+      - postgres
+    depends_on:
+      - zipkin
+      - eureka-server
+      - postgres
+      - rabbitmq
+  fraud:
+    image: amiragalal/fraud:latest
+    container_name: fraud
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - spring
+      - postgres
+    depends_on:
+      - zipkin
+      - eureka-server
+      - postgres
+      - rabbitmq
+  notification:
+    image: amiragalal/notification:latest
+    container_name: notification
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - spring
+      - postgres
+    depends_on:
+      - zipkin
+      - eureka-server
+      - postgres
+      - rabbitmq
+networks:
+  postgres:
+    driver: bridge
+  spring:
+    driver: bridge
+```
+5. Running the `apigw` module (API Gateway) and build its Docker image in two ways:
+
+- **Using IntelliJ's Maven sidebar**: IntelliJ > Maven sidebar > run profile "build-docker-image" = ✅ Same as 	
+- Using the **command line** inside the **apigw module**:
+```cmd
+ <!-- Build the Docker image and push it to Docker Hub -->
+mvn clean package -P build-docker-image
+
+<!-- Build the Docker image and It will not push to Docker Hub-->
+mvn compile jib:dockerBuild
+```
+
+6. Having 2 tags:
+- `0.0.1-SNAPSHOT`&rarr; **work-in-progress** version (during development)
+- `latest` &rarr; **Most recently built** 
+
+![DockerHub apigw](assets/docker-hub-apigw-repository.png)
+![DockerHub microservices](assets/docker-hub-repositories.png)
+
+7. Instead of modifying the default `application.yml` for **apigw** & **eureka-server**  to replace  **localhost** with &rarr; **Container Name** <br/>
+Create a new **profile** by creating a new file `application-docker.yml` and add an **environment variable** to activate the Docker profile to parent's `application.yml`
+ ```yml  
+  environment:
+      - SPRING_PROFILES_ACTIVE=docker
+```
+
+8- After updating the `application-docker.yml` for the rest of the services:
+```shell 
+# Deletes the target/ directory &
+# Compiles the code and packages it (into JAR/WAR)
+# Activates the Maven profile named build-docker-image
+mvn clean package -P build-docker-image
+
+# Pull the latest version of the containers
+docker compose pull 
+
+# Starts the containers
+docker compose up -d
+
+# Lists running containers with a custom format 
+docker ps --format=$FORMAT
+
+# Shows the logs/output of the container
+docker logs customer
+
+# Stops all running containers defined in the docker-compose.yml
+docker compose stop
+
+# Starts previously stopped containers
+docker compose start
+
+# Stops and removes containers, networks, and volumes defined in docker-compose.yml
+docker compose down
+```
+
+9- Finally, send a request from Postman. 
+When you open **Zipkin**, you’ll notice that the URL shown is no longer **localhost** — instead, it uses an **internal Docker network address**.
+![Postman request to docker containers](assets/postman-request-to-docker-containers.png)
+![API-GW on docker](assets/eureka-apigw-running-on-docker.png)
+![Eureka Server](assets/eureka-containers-deployed-on-docker.png)
+![Zipkin](assets/zipkin-docker-containers.png)
+![Postgres Notification db](assets/notification-request-to-docker-container.png)
